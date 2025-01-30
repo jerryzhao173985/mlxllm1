@@ -1,5 +1,3 @@
-// Copyright © 2024 Apple Inc.
-
 import MLX
 import MLXLLM
 import MLXLMCommon
@@ -9,11 +7,6 @@ import Metal
 import SwiftUI
 import Tokenizers
 import Hub
-
-
-/// Model configuration setup
-//let modelStorageDirectory: URL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("huggingface")
-//let hubApi = HubApi(downloadBase: modelStorageDirectory)
 
 struct ContentView: View {
 
@@ -27,9 +20,12 @@ struct ContentView: View {
     }
 
     @State private var selectedDisplayStyle = displayStyle.plain
-    
+
     // Controls the ephemeral "Copied!" animation
     @State private var showCopyConfirmation = false
+
+    // State variable to track if the user is at the bottom
+    @State private var isAtBottom: Bool = true
 
     var body: some View {
         VStack(alignment: .leading) {
@@ -77,62 +73,38 @@ struct ContentView: View {
                 // show the model output
                 ScrollView(.vertical) {
                     ScrollViewReader { sp in
-                        Group {
+                        VStack(alignment: .leading, spacing: 0) {
                             if selectedDisplayStyle == .plain {
                                 Text(llm.output)
                                     .textSelection(.enabled)
                             } else {
-//                                let preprocessed = llm.output
-//                                  .replacingOccurrences(of: "<think>", with: "\n> 💭 **Thinking**:\n> ")
-//                                  .replacingOccurrences(of: "</think>", with: "\n\n")
-                                let output = llm.output
-//                                    .replacingOccurrences(of: "\n", with: "\n>")
-                                    // replace first occurence of ">" with "\n>"
-                                
-                                ThinkDemoView(source:output)
+                                ThinkDemoView(source: llm.output)
                                     .textSelection(.enabled)
-
-//                                Markdown(llm.output.replacingOccurrences(of: "</think>", with: "\n> 💭 ")+"\n> ")
-//                                    .markdownTextStyle() {
-//                                        FontFamily(.system())
-//                                        FontSize(15)
-//                                        FontWeight(.regular)
-//                                        ForegroundColor(.black)
-//                                        BackgroundColor(.clear)
-//                                    }
-//                                    .markdownTextStyle(\.code) {
-//                                        BackgroundColor(.gray.opacity(0.3))
-//                                    }
-//                                    .markdownBlockStyle(\.codeBlock) { configuration in
-//                                        configuration.label
-//                                            .padding(5)
-//                                            .markdownTextStyle {
-//                                                BackgroundColor(nil)
-//                                            }
-//                                            .background(Color.gray.opacity(0.3))
-//                                            .cornerRadius(5)
-//                                    }
-//                                    .markdownBlockStyle(\.taskListMarker) { configuration in
-//                                        Image(systemName: configuration.isCompleted ? "checkmark.circle.fill" : "circle")
-//                                        .relativeFrame(minWidth: .em(1.5), alignment: .trailing)
-//                                      }
-//                                    .markdownBlockStyle(\.table) { configuration in
-//                                        configuration.label
-//                                            .markdownTableBorderStyle(
-//                                                TableBorderStyle(color: Color.black)
-//                                            )
-//                                    }
-//                                    .padding(2)
-//                                    .padding(.horizontal, 10)
-//                                    .padding(.vertical, 5)
-//                                    .background(Color(.systemBackground))
-//                                    .cornerRadius(8)
-//                                    .shadow(radius: 3)
-//                                    .textSelection(.enabled)
                             }
+
+                            // Invisible view at the bottom to detect if user is at the bottom
+                            Color.clear
+                                .frame(height: 1)
+                                .id("bottom")
+                                .background(
+                                    GeometryReader { geo in
+                                        Color.clear
+                                            .preference(key: ScrollViewOffsetPreferenceKey.self, value: geo.frame(in: .named("scrollView")).maxY)
+                                    }
+                                )
+                        }
+                        .onPreferenceChange(ScrollViewOffsetPreferenceKey.self) { maxY in
+                            // Determine if the bottom is visible
+                            // Adjust the threshold as needed
+                            let scrollViewHeight = UIScreen.main.bounds.height
+                            isAtBottom = maxY <= scrollViewHeight + 10 // 10 is a threshold
                         }
                         .onChange(of: llm.output) { _, _ in
-                            sp.scrollTo("bottom")
+                            if isAtBottom {
+                                withAnimation {
+                                    sp.scrollTo("bottom", anchor: .bottom)
+                                }
+                            }
                         }
 
                         Spacer()
@@ -211,19 +183,20 @@ struct ContentView: View {
                 Button {
                     Task {
                         copyToClipboard(prompt: prompt, response: llm.output)
-//                        copyToClipboard(llm.output)
+                        // copyToClipboard(llm.output)
                     }
                 } label: {
                     Label("Copy Output", systemImage: "doc.on.doc.fill")
                 }
                 .disabled(llm.output.isEmpty)
-//                .disabled(llm.output == "")
+                // .disabled(llm.output == "")
                 .labelStyle(.titleAndIcon)
             }
 
         }
+        .coordinateSpace(name: "scrollView") // Define coordinate space for GeometryReader
         .task {
-            self.prompt = "高跟鞋" /*llm.modelConfiguration.defaultPrompt*/
+            self.prompt = "高跟鞋 简要简洁分析" /*llm.modelConfiguration.defaultPrompt*/
 
             // pre-load the weights on launch to speed up the first generation
             _ = try? await llm.load()
@@ -235,20 +208,12 @@ struct ContentView: View {
             await llm.generate(prompt: prompt)
         }
     }
-//    private func copyToClipboard(_ string: String) {
-//        #if os(macOS)
-//            NSPasteboard.general.clearContents()
-//            NSPasteboard.general.setString(string, forType: .string)
-//        #else
-//            UIPasteboard.general.string = string
-//        #endif
-//    }
-    
+
+    // Removed the commented copyToClipboard function
+
     private func copyToClipboard(prompt: String, response: String) {
         // Format text as <input>\n<response>
         let formattedText = "\(prompt)\n\(response)"
-//        let formattedText = "\(response)"
-
         #if os(macOS)
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(formattedText, forType: .string)
@@ -257,3 +222,14 @@ struct ContentView: View {
         #endif
     }
 }
+
+// PreferenceKey to track scroll offset
+struct ScrollViewOffsetPreferenceKey: PreferenceKey {
+    typealias Value = CGFloat
+    static var defaultValue: CGFloat = 0
+
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
